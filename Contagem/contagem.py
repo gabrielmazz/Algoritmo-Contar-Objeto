@@ -1,85 +1,125 @@
 import numpy as np
-import matplotlib.pyplot as plt
 from PIL import Image, ImageDraw
-from scipy.ndimage import label, binary_closing, generate_binary_structure
+from scipy.ndimage import label, generate_binary_structure
 from skimage import morphology
 
-
-def otsu_threshold(image_array):
-    """Aplica o algoritmo de Otsu para encontrar o melhor limiar de binarização."""
-    hist = np.histogram(image_array.flatten(), bins=256, range=(0, 256))[0]
+# Função para calcular o limiar ideal para binarização usando o método de Otsu
+def calcular_limiar_otsu(image_array):
+    # Calcula o histograma da imagem e o total de pixels
+    histograma, _ = np.histogram(image_array, bins=256, range=(0, 256))
     total_pixels = image_array.size
-    sum_total = np.sum(np.arange(256) * hist)
+    soma_total = np.sum(np.arange(256) * histograma)
     
-    max_variance = 0
-    best_threshold = 0
-    sum_background = 0
-    weight_background = 0
+    # Inicializa variáveis para encontrar o melhor limiar
+    melhor_limiar = 0
+    variancia_maxima = 0
+    soma_fundo = 0
+    peso_fundo = 0
     
-    for i in range(256):
-        weight_background += hist[i]
-        if weight_background == 0:
+    # Itera sobre todos os possíveis limiares
+    for t in range(256):
+        peso_fundo += histograma[t]
+        if peso_fundo == 0:
             continue
         
-        weight_foreground = total_pixels - weight_background
-        if weight_foreground == 0:
+        peso_frente = total_pixels - peso_fundo
+        if peso_frente == 0:
             break
         
-        sum_background += i * hist[i]
-        mean_background = sum_background / weight_background
-        mean_foreground = (sum_total - sum_background) / weight_foreground
+        # Calcula as médias e a variância entre classes
+        soma_fundo += t * histograma[t]
+        media_fundo = soma_fundo / peso_fundo
+        media_frente = (soma_total - soma_fundo) / peso_frente
         
-        variance_between = weight_background * weight_foreground * (mean_background - mean_foreground) ** 2
+        variancia_entre_classes = peso_fundo * peso_frente * (media_fundo - media_frente) ** 2
         
-        if variance_between > max_variance:
-            max_variance = variance_between
-            best_threshold = i
+        # Atualiza o melhor limiar se a variância for maior
+        if variancia_entre_classes > variancia_maxima:
+            variancia_maxima = variancia_entre_classes
+            melhor_limiar = t
     
-    return best_threshold
+    # Ajuste do limiar para torná-lo mais restritivo
+    return melhor_limiar * 1.1  # Aumenta o limiar em 10%
 
-def segmentar_imagem(image_array, threshold):
-    """Segmenta a imagem usando o limiar de Otsu e aplica fechamento morfológico."""
-    binary_image = image_array < threshold  # Inverte a imagem para fundo preto e objetos brancos
-    binary_image = morphology.closing(binary_image, morphology.square(3))  # Remove pequenos buracos
-    return binary_image.astype(np.uint8)
-
-def detectar_objetos(binary_image, min_area=100):
-    """Identifica objetos na imagem usando marcadores e rotulação de componentes conectados."""
-    estrutura = generate_binary_structure(2, 2)
-    labeled, num_objects = label(binary_image, structure=estrutura)
+# Função para binarizar a imagem e aplicar operações morfológicas
+def binarizar_imagem(image_array, limiar):
+    # Binariza a imagem com base no limiar
+    imagem_binaria = image_array < limiar
     
-    objetos = []
-    for obj_id in range(1, num_objects + 1):
-        posicoes = np.argwhere(labeled == obj_id)
-        minr, minc = posicoes.min(axis=0)
-        maxr, maxc = posicoes.max(axis=0)
-        area = len(posicoes)
+    # Aplica abertura morfológica para remover pequenos objetos
+    imagem_binaria = morphology.binary_opening(imagem_binaria, morphology.square(3))
+    
+    # Aplica fechamento morfológico para fechar buracos
+    imagem_binaria = morphology.binary_closing(imagem_binaria, morphology.square(5))
+    
+    # Retorna a imagem binarizada como uint8
+    return imagem_binaria.astype(np.uint8)
+
+# Função para identificar componentes conectados na imagem binária
+def identificar_componentes(imagem_binaria, area_minima=200, proporcao_maxima=2.0):
+    # Define a estrutura de conexão para os componentes
+    estrutura_conexao = generate_binary_structure(2, 2)
+    
+    # Rotula os componentes conectados na imagem
+    rotulos, total_objetos = label(imagem_binaria, structure=estrutura_conexao)
+    
+    # Lista para armazenar informações dos objetos detectados
+    lista_objetos = []
+    for id_objeto in range(1, total_objetos + 1):
+        # Obtém as coordenadas dos pixels do objeto
+        coordenadas = np.argwhere(rotulos == id_objeto)
         
-        if area > min_area:
-            objetos.append({
-                'posicao': (minc, minr),
-                'dimensoes': (maxc - minc, maxr - minr),
+        # Calcula os limites do objeto
+        min_linha, min_coluna = coordenadas.min(axis=0)
+        max_linha, max_coluna = coordenadas.max(axis=0)
+        
+        # Calcula a área do objeto
+        area = coordenadas.shape[0]
+        largura = max_coluna - min_coluna
+        altura = max_linha - min_linha
+        proporcao = largura / altura if altura != 0 else 0
+        
+        # Filtra por área mínima e proporção máxima
+        if area > area_minima and (proporcao <= proporcao_maxima and proporcao >= 1/proporcao_maxima):
+            lista_objetos.append({
+                'posicao': (min_coluna, min_linha),
+                'dimensoes': (largura, altura),
                 'area': area
             })
     
-    return labeled, objetos
+    # Retorna os rótulos e a lista de objetos detectados
+    return rotulos, lista_objetos
 
-def desenhar_retangulos(image_path, objetos):
-    """Desenha retângulos ao redor dos objetos detectados."""
-    imagem = Image.open(image_path).convert("RGB")
-    draw = ImageDraw.Draw(imagem)
+# Função para desenhar retângulos ao redor dos objetos detectados
+def marcar_objetos(imagem_caminho, lista_objetos):
+    # Abre a imagem e a converte para RGB
+    imagem = Image.open(imagem_caminho).convert("RGB")
     
-    for obj in objetos:
-        minc, minr = obj['posicao']
-        largura, altura = obj['dimensoes']
-        draw.rectangle([minc, minr, minc + largura, minr + altura], outline="red", width=2)
+    # Cria um objeto de desenho para a imagem
+    desenho = ImageDraw.Draw(imagem)
     
+    # Itera sobre os objetos detectados
+    for objeto in lista_objetos:
+        # Obtém as coordenadas e dimensões do objeto
+        min_coluna, min_linha = objeto['posicao']
+        largura, altura = objeto['dimensoes']
+        
+        # Desenha um retângulo ao redor do objeto
+        desenho.rectangle([min_coluna, min_linha, min_coluna + largura, min_linha + altura], outline="red", width=2)
+    
+    # Retorna a imagem com os objetos marcados
     return imagem
 
-def contagem_de_objetos(imagem):
+# Função principal para contar objetos na imagem
+def contar_objetos(imagem):
+    # Calcula o limiar ideal para binarização usando o método de Otsu
+    limiar = calcular_limiar_otsu(imagem)
     
-    threshold = otsu_threshold(imagem)
-    imagem_binaria = segmentar_imagem(imagem, threshold)
-    objetos_detectados, objetos = detectar_objetos(imagem_binaria)
-
-    return imagem_binaria, objetos
+    # Binariza a imagem com base no limiar calculado e aplica operações morfológicas
+    imagem_binarizada = binarizar_imagem(imagem, limiar)
+    
+    # Identifica componentes conectados na imagem binária e retorna os objetos detectados
+    rotulos, objetos = identificar_componentes(imagem_binarizada)
+    
+    # Retorna a imagem binarizada e a lista de objetos detectados
+    return imagem_binarizada, objetos

@@ -48,7 +48,7 @@ def desenhar_retangulos(imagem_path, objetos):
     
     # Desenha os retângulos
     for obj in objetos:
-        draw.rectangle([obj['posicao'], (obj['posicao'][0] + obj['dimensoes'][0], obj['posicao'][1] + obj['dimensoes'][1])], outline='red', width=3)
+        draw.rectangle([obj['posicao'], (obj['posicao'][0] + obj['dimensoes'][0], obj['posicao'][1] + obj['dimensoes'][1])], outline='purple', width=2)
         
     return imagem
     

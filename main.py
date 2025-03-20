@@ -37,7 +37,7 @@ def contador_de_objetos(imagem_escolhida, tipo):
 
         # Realiza a contagem de objetos
         progress.update(task, advance=1, description='[cyan]Contando os objetos...')
-        imagem_resultado, contagem_objetos = cont_obj.contagem_de_objetos(Imagem_Original)
+        imagem_resultado, contagem_objetos = cont_obj.contar_objetos(Imagem_Original)
         
         time.sleep(1)
         
