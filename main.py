@@ -55,7 +55,7 @@ def contador_de_objetos(imagem_escolhida, tipo):
         
     # Salva a imagem na pasta de resultados
     if args.save:
-        pass
+        ut_img.salvar_imagem(imagem_resultado_retangulos, './resultados/{}_{}'.format(tipo, imagem_escolhida))
     
     if args.info:
         ut_code.print_infos(end_time, tipo, imagem_escolhida, len(contagem_objetos))
